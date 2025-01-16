@@ -1342,8 +1342,7 @@ def post_pacstrap_setup(
         # Continue installation even if this fails
 
     section("Enabling the backlight service for special_keys")
-    if not run("systemctl", "enable", "special-keys-backlight
-.service"):
+    if not run("systemctl", "enable", "special-keys-backlight.service"):
         logger.error("Failed to enable the special_keys backlight service")
         # Continue installation even if this fails
 
