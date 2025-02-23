@@ -18,6 +18,7 @@ python auto_moos.py
 - [X] Add command line arguments
 - [X] Implement configuration generation
 - [X] Allow customization of all fields
-- [ ] Implement scrolling
+- [X] Implement scrolling
+- [ ] Add an option for headless installation
 - [ ] Center the GUI on the screen
 - [ ] Improve documentation

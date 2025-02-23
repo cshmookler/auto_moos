@@ -420,6 +420,7 @@ class Field:
 
 @dataclass
 class Profile:
+    headless: Field = Field(False, bool)
     network_install: Field = Field(False, bool)
     min_device_bytes: Field = Field(int(10e9), int, validator=Field.numeric_validator)
     device: Field = Field(None, Optional[str])
@@ -453,16 +454,6 @@ def dict_to_profile(profile_dict: dict) -> Profile:
         else:
             logger.warning("Unrecognized field in profile: " + key)
     return profile
-
-
-def dump_packages(packages: List[str], path: str) -> bool:
-    try:
-        with open(path, "w") as packages_file:
-            packages_file.write("\n".join(packages))
-        return True
-    except:
-        logger.error("Failed to write the package list to " + path)
-        return False
 
 
 def load_packages(path: str) -> Optional[List[str]]:
@@ -790,10 +781,26 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
     cursor_index: Optional[int] = 0
     error: Optional[str] = None
 
+    class Index(IntEnum):
+        headless = 0
+        network_install = 1
+        min_device_bytes = 2
+        device = 3
+        boot_label = 4
+        time_zone = 5
+        hostname = 6
+        root_password = 7
+        username = 8
+        user_password = 9
+        sudo_group = 10
+        restart = 11
+        begin_installation = 12
+
     while True:
         cursor_index = app.select(
             "Select a field to change before installation:",
             [
+                "        headless  ->  " + profile.headless.get_str(),
                 " network install  ->  " + profile.network_install.get_str(),
                 "min device bytes  ->  " + profile.min_device_bytes.get_str(),
                 "          device  ->  " + profile.device.get_str(),
@@ -812,7 +819,17 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
         if cursor_index is None:
             return None
 
-        if cursor_index == 0:  # network install
+        if cursor_index == int(Index.headless):
+            selection_index = app.select(
+                "Enable headless installation mode?",
+                [
+                    "No. Install a graphical environment (X server).",
+                    "Yes. Do NOT install the X server or any related programs.",
+                ],
+            )
+            if selection_index is not None:
+                profile.headless.set(bool(selection_index))
+        if cursor_index == int(Index.network_install):
             selection_index = app.select(
                 "Enable network installation mode?\n\n"
                 "Note: Check the configuration at /etc/pacman.conf before changing this setting.",
@@ -823,44 +840,44 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
             )
             if selection_index is not None:
                 profile.network_install.set(bool(selection_index))
-        elif cursor_index == 1:  # min device bytes
+        elif cursor_index == int(Index.min_device_bytes):
             profile.min_device_bytes = app.input(
                 profile.min_device_bytes,
                 "Enter the minimum number of bytes for a device:",
             )
-        elif cursor_index == 2:  # device
+        elif cursor_index == int(Index.device):
             profile.device.set(app.get_device(profile.min_device_bytes.get()))
-        elif cursor_index == 3:  # boot label
+        elif cursor_index == int(Index.boot_label):
             profile.boot_label = app.input(
                 profile.boot_label, "Enter the new boot label:"
             )
-        elif cursor_index == 4:  # time zone
+        elif cursor_index == int(Index.time_zone):
             new_time_zone = app.get_time_zone()
             if new_time_zone:
                 profile.time_zone.set(new_time_zone)
-        elif cursor_index == 5:  # hostname
+        elif cursor_index == int(Index.hostname):
             profile.hostname = app.input(profile.hostname, "Enter the new hostname:")
-        elif cursor_index == 6:  # root password
+        elif cursor_index == int(Index.root_password):
             profile.root_password = app.input(
                 profile.root_password,
                 "Enter the new password for root:",
             )
-        elif cursor_index == 7:  # username
+        elif cursor_index == int(Index.username):
             profile.username = app.input(
                 profile.username,
                 "Enter the new name for the user:",
             )
-        elif cursor_index == 8:  # user password
+        elif cursor_index == int(Index.user_password):
             profile.user_password = app.input(
                 profile.user_password,
                 "Enter the new password for the user:",
             )
-        elif cursor_index == 9:  # sudo group
+        elif cursor_index == int(Index.sudo_group):
             profile.sudo_group = app.input(
                 profile.sudo_group,
                 "Enter the new name for the sudo group:",
             )
-        elif cursor_index == 10:  # restart
+        elif cursor_index == int(Index.restart):
             selection_index = app.select(
                 "Enable restart after installation?",
                 [
@@ -870,7 +887,7 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
             )
             if selection_index is not None:
                 profile.restart.set(bool(selection_index))
-        elif cursor_index == 11:  # Begin Installation
+        elif cursor_index == int(Index.begin_installation):
             if profile.device.get() is not None:
                 break
             profile.device.set(app.get_device(profile.min_device_bytes.get()))
@@ -907,7 +924,7 @@ def main() -> bool:
         "-c",
         "--conf-dir",
         dest="conf_dir",
-        help="set the path to the directory containing the package list and profile",
+        help="set the path to the directory containing the extra packages list and profile",
         action="store",
     )
     arg_parser.add_argument(
@@ -929,7 +946,8 @@ def main() -> bool:
     args: Namespace = arg_parser.parse_args()
 
     # Declare the default package list.
-    packages: List[str] = ["moos", "moos-xorg", "moos-sshd-conf"]
+    headless_packages: List[str] = ["moos", "moos-sshd-conf"]
+    graphical_packages: List[str] = ["moos", "moos-sshd-conf", "moos-xorg"]
 
     # Declare the default profile.
     profile = Profile()
@@ -969,13 +987,7 @@ def main() -> bool:
         if not os.path.exists(conf_dir):
             os.makedirs(conf_dir)
 
-        # Generate example packages
-        if not dump_packages(packages, package_list_path):
-            logger.error(
-                "Failed to write an example package list to " + package_list_path
-            )
-            return False
-
+        # Generate an example profile
         if not dump_profile(profile, profile_path):
             logger.error("Failed to write an example profile to " + profile_path)
             return False
@@ -983,9 +995,10 @@ def main() -> bool:
         quit(0)
 
     # Read the package list
+    extra_packages: List[str] = []
     custom_packages = load_packages(package_list_path)
     if custom_packages:
-        packages = custom_packages
+        extra_packages = custom_packages
 
     # Read the profile
     custom_profile = load_profile(profile_path)
@@ -1009,6 +1022,18 @@ def main() -> bool:
             "Failed to find a suitable device for installation. Manual intervention is required"
         )
         return False
+
+    # Select the base package list based on the profile.
+    if profile.headless.get():
+        base_packages = headless_packages
+    else:
+        base_packages = graphical_packages
+
+    # Add all extra packages to the list of packages to install.
+    packages: List[str] = base_packages
+    for pkg in extra_packages:
+        if pkg not in packages:
+            packages.append(pkg)
 
     # Setup debug utilities
     cols, lines = os.get_terminal_size()
@@ -1132,16 +1157,24 @@ def main() -> bool:
     section("Removing this script from the root partition")
     remove(root_mount + "/auto_moos.py")  # Do nothing if this fails
 
+    logger.success("Installation complete!")
+
+    section("Writing to the log file and printing accumulated messages")
+    logger.show_all_as_ansi()  # Write to the log file
+
+    section("Copying the log file to the root home directory in the root partition")
+    new_log_file_path = root_mount + "/root/.auto_moos_log"
+    if not run("cp", log_file_path, new_log_file_path):
+        logger.error(
+            "Failed to copy the log file at "
+            + log_file_path
+            + " to "
+            + new_log_file_path
+        )
+
     section("Unmounting all partitions on " + profile.device.get_str())
     if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
         logger.error("Failed to unmount all partitions on " + profile.device.get_str())
-        return False
-
-    logger.success("Installation complete!")
-
-    sep()
-    print("Messages accumulated during installation: ")
-    logger.show_all_as_ansi()
 
     restart_timeout: int = 10
     if profile.restart.get():
@@ -1209,21 +1242,18 @@ def post_pacstrap_setup(
                 logger.error("Failed to set the user password")
                 # Continue installation even if this fails
 
-            section("Creating the user environment")
-            if not run(
-                "sudo",
-                "-u",
-                profile.username.get_str(),
-                "reset_user_env",
-            ):
-                logger.error("Failed to create the user environment")
-                # Continue installation even if this fails
+            if not profile.headless.get():
+                section("Creating the user environment")
+                if not run(
+                    "sudo",
+                    "-u",
+                    profile.username.get_str(),
+                    "reset_user_env",
+                ):
+                    logger.error("Failed to create the user environment")
+                    # Continue installation even if this fails
         else:
             logger.error("Failed to create the user")
-            # Continue installation even if this fails
-
-        if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
-            logger.error("Failed add the user to the libvirt group")
             # Continue installation even if this fails
 
         section("Providing root privileges to all members of the sudo group")
@@ -1304,10 +1334,11 @@ def post_pacstrap_setup(
         logger.error("Failed to enable the sshd service")
         # Continue installation even if this fails
 
-    section("Enabling the backlight service for special_keys")
-    if not run("systemctl", "enable", "special-keys-backlight.service"):
-        logger.error("Failed to enable the special_keys backlight service")
-        # Continue installation even if this fails
+    if not profile.headless.get():
+        section("Enabling the backlight service for special_keys")
+        if not run("systemctl", "enable", "special-keys-backlight.service"):
+            logger.error("Failed to enable the special_keys backlight service")
+            # Continue installation even if this fails
 
     section("Enabling Open-VM-Tools")
     if not run("systemctl", "enable", "vmtoolsd.service"):
@@ -1329,23 +1360,25 @@ def post_pacstrap_setup(
         logger.error("Failed to enable the vboxservice service for VirtualBox")
         # Continue installation even if this fails
 
-    section("Enabling libvirtd")
-    if not run("systemctl", "enable", "libvirtd.socket"):
-        logger.error("Failed to enable the libvirtd socket for QEMU")
-        # Continue installation even if this fails
-    if not run("virsh", "net-autostart", "default"):
-        logger.error(
-            "Failed to force the network interface for libvirt to start automatically"
-        )
-        # Continue installation even if this fails
-    if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
-        logger.error("Failed add the user to the libvirt group")
-        # Continue installation even if this fails
+    if not profile.headless.get():
+        section("Enabling libvirtd")
+        if not run("systemctl", "enable", "libvirtd.socket"):
+            logger.error("Failed to enable the libvirtd socket for QEMU")
+            # Continue installation even if this fails
+        if not run("virsh", "net-autostart", "default"):
+            logger.error(
+                "Failed to force the network interface for libvirt to start automatically"
+            )
+            # Continue installation even if this fails
+        if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
+            logger.error("Failed add the user to the libvirt group")
+            # Continue installation even if this fails
 
-    section("Creating global policies for Firefox")
-    if not run("reset_firefox_policies"):
-        logger.error("Failed to create global policies for Firefox")
-        # Continue installation even if this fails
+    if not profile.headless.get():
+        section("Creating global policies for Firefox")
+        if not run("reset_firefox_policies"):
+            logger.error("Failed to create global policies for Firefox")
+            # Continue installation even if this fails
 
     return True
 
