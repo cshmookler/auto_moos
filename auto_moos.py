@@ -1299,7 +1299,7 @@ def post_pacstrap_setup(
         logger.error("Failed to enable the ufw service")
         # Continue installation even if this fails
 
-    section("Enabling ssh")
+    section("Enabling SSH")
     if not run("systemctl", "enable", "sshd.service"):
         logger.error("Failed to enable the sshd service")
         # Continue installation even if this fails
@@ -1309,18 +1309,35 @@ def post_pacstrap_setup(
         logger.error("Failed to enable the special_keys backlight service")
         # Continue installation even if this fails
 
-    # section("Enabling libvirtd")
-    # if not run("systemctl", "enable", "libvirtd.socket"):
-    #     logger.error("Failed to enable the libvirtd socket for QEMU")
-    #     # Continue installation even if this fails
+    section("Enabling Open-VM-Tools")
+    if not run("systemctl", "enable", "vmtoolsd.service"):
+        logger.error("Failed to enable the vmtoolsd service for Open-VM-Tools")
+        # Continue installation even if this fails
+    if not run("systemctl", "enable", "vmware-vmblock-fuse.service"):
+        logger.error(
+            "Failed to enable the vmware-vmblock-fuse service for Open-VM-Tools"
+        )
+        # Continue installation even if this fails
 
-    # if not run("virsh", "net-autostart", "default"):
-    #     # TODO: Starting the 'default' network may depend on the 'dnsmasq' package.
-    #     logger.error(
-    #         "Failed to force the network interface for libvirt to start automatically"
-    #     )
-    #     # Continue installation even if this fails
+    section("Enabling QEMU Guest Agent")
+    if not run("systemctl", "enable", "qemu-guest-agent.service"):
+        logger.error("Failed to enable the qemu-guest-agent service for QEMU")
+        # Continue installation even if this fails
 
+    section("Enabling VirtualBox Guest Utils")
+    if not run("systemctl", "enable", "vboxservice.service"):
+        logger.error("Failed to enable the vboxservice service for VirtualBox")
+        # Continue installation even if this fails
+
+    section("Enabling libvirtd")
+    if not run("systemctl", "enable", "libvirtd.socket"):
+        logger.error("Failed to enable the libvirtd socket for QEMU")
+        # Continue installation even if this fails
+    if not run("virsh", "net-autostart", "default"):
+        logger.error(
+            "Failed to force the network interface for libvirt to start automatically"
+        )
+        # Continue installation even if this fails
     if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
         logger.error("Failed add the user to the libvirt group")
         # Continue installation even if this fails
