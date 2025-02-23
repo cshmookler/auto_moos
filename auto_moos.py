@@ -1144,7 +1144,7 @@ def main() -> bool:
     logger.show_all_as_ansi()
 
     restart_timeout: int = 10
-    if profile.restart:
+    if profile.restart.get():
         sep()
         print("All logs will be stored to " + log_file_path + ".")
         print("Type CTRL-C to cancel the restart.")
