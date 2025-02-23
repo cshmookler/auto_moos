@@ -2,17 +2,17 @@
 
 """Automatically installs MOOS"""
 
-from argparse import Action, ArgumentParser, Namespace
 import atexit
 import curses
-from dataclasses import dataclass, fields
-from enum import Enum, IntEnum, auto
 import json
 import os
-from queue import Queue, Empty
 import shutil
-from signal import signal, SIGINT, SIGTERM
 import subprocess
+from argparse import Action, ArgumentParser, Namespace
+from dataclasses import dataclass, fields
+from enum import auto, Enum, IntEnum
+from queue import Empty, Queue
+from signal import SIGINT, signal, SIGTERM
 from time import sleep
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -239,8 +239,7 @@ def is_device_valid(dev_path: str, min_dev_bytes: int) -> bool:
     )
     if not dev_info:
         logger.error(
-            "Failed to get device information from lsblk for device: "
-            + dev_path
+            "Failed to get device information from lsblk for device: " + dev_path
         )
         return False
 
@@ -280,9 +279,7 @@ def is_device_valid(dev_path: str, min_dev_bytes: int) -> bool:
 def device_lacks_partitions(dev_path: str) -> Optional[bool]:
     parts = get("lsblk", "--noheadings", "--output", "path", dev_path)
     if not parts:
-        logger.error(
-            "Failed to use lsblk to list partitions on device: " + dev_path
-        )
+        logger.error("Failed to use lsblk to list partitions on device: " + dev_path)
         return None
 
     parts = str(parts).splitlines()[1:]
@@ -353,10 +350,7 @@ class Field:
         if len(value) > 64:
             logger.error("Hostnames cannot be longer than 64 characters")
             return False
-        if not (
-            value.replace("-", "").islower()
-            and value.replace("-", "").isalnum()
-        ):
+        if not (value.replace("-", "").islower() and value.replace("-", "").isalnum()):
             logger.error(
                 "Hostnames may only contain lowercase letters, numbers, and hyphens"
             )
@@ -427,28 +421,19 @@ class Field:
 @dataclass
 class Profile:
     network_install: Field = Field(False, bool)
-    min_device_bytes: Field = Field(
-        int(10e9), int, validator=Field.numeric_validator
-    )
+    min_device_bytes: Field = Field(int(10e9), int, validator=Field.numeric_validator)
     device: Field = Field(None, Optional[str])
     boot_label: Field = Field("MOOS", str, validator=Field.boot_label_validator)
     time_zone: Field = Field("America/Denver", str)
     hostname: Field = Field("moos", str, validator=Field.hostname_validator)
-    root_password: Field = Field(
-        "root", str, validator=Field.password_validator
-    )
+    root_password: Field = Field("root", str, validator=Field.password_validator)
     username: Field = Field("main", str, validator=Field.name_validator)
-    user_password: Field = Field(
-        "main", str, validator=Field.password_validator
-    )
+    user_password: Field = Field("main", str, validator=Field.password_validator)
     sudo_group: Field = Field("wheel", str, validator=Field.name_validator)
     restart: Field = Field(True, bool)
 
     def to_dict(self) -> dict:
-        return {
-            field.name: getattr(self, field.name).get()
-            for field in fields(self)
-        }
+        return {field.name: getattr(self, field.name).get() for field in fields(self)}
 
 
 def dict_to_profile(profile_dict: dict) -> Profile:
@@ -530,9 +515,19 @@ class CursesApp:
         curses.init_pair(Level.verbose, curses.COLOR_WHITE, curses.COLOR_BLACK)
 
     def _set_color(self, color: Level, window=None) -> None:
-        if not window:
-            window = self.win
+        if window is None:
+            window = self.pad
         window.bkgdset(curses.color_pair(color))
+
+    def refresh_pad(self, line: int) -> None:
+        self.pad.refresh(
+            line,
+            0,
+            self.line_origin,
+            self.col_origin,
+            self.lines - self.border_lines,
+            self.cols - self.border_cols,
+        )
 
     def __init__(self) -> None:
         # Beginning application initialization
@@ -561,49 +556,24 @@ class CursesApp:
         self.screen.clear()
         self.screen.refresh()
 
-        # The minimum number of lines and columns necessary for this program to function
-        self.min_lines = 12
-        self.min_cols = 44
-        self.max_border_lines = 3
-        self.max_border_cols = 10
-        if curses.LINES < self.min_lines or curses.COLS < self.min_cols:
-            self.cleanup()
-            logger.error(
-                "Min dim: " + str(self.min_lines) + "x" + str(self.min_cols)
-            )
-            return
-
-        # Get the size and position of the window
-        if curses.LINES > ((self.max_border_lines * 2) + self.min_lines):
-            self.lines = curses.LINES - (self.max_border_lines * 2)
-        else:
-            self.lines = self.min_lines
-
-        if curses.COLS > ((self.max_border_cols * 2) + self.min_cols):
-            self.cols = curses.COLS - (self.max_border_cols * 2)
-        else:
-            self.cols = self.min_cols
+        # Determine the number of usable lines and columns
+        self.border_lines = 3
+        self.border_cols = 10
+        self.lines = curses.LINES - (self.border_lines * 2)
+        self.cols = curses.COLS - (self.border_cols * 2)
 
         self.line_origin = int((curses.LINES - self.lines) / 2)
         self.col_origin = int((curses.COLS - self.cols) / 2)
 
-        # Create the border and window
-        self.border = curses.newwin(
-            self.lines, self.cols, self.line_origin, self.col_origin
-        )
-        self.win = curses.newwin(
-            self.lines - 2,
-            self.cols - 4,
-            self.line_origin + 1,
-            self.col_origin + 2,
+        # Create the pad for displaying content
+        self.pad = curses.newpad(
+            10000,
+            self.cols,
         )
 
-        # Clear and refresh the border and window
-        self.border.clear()
-        self.border.border()
-        self.border.refresh()
-        self.win.clear()
-        self.win.refresh()
+        # Clear and refresh the pad
+        self.pad.clear()
+        self.refresh_pad(0)
 
         # Initialization is complete
         self.good = True
@@ -620,15 +590,15 @@ class CursesApp:
             self.clean = True
 
     def show_help(self) -> None:
-        self.win.clear()
-        self.win.addstr(
+        self.pad.clear()
+        self.pad.addstr(
             "  down:  j / DOWN_ARROW\n"
             "    up:  k / UP_ARROW\n"
             "cancel:  q\n"
             "select:  ; / ENTER"
         )
-        self.win.refresh()
-        self.win.getkey()
+        self.refresh_pad(0)
+        self.pad.getkey()
 
     def select(
         self,
@@ -638,41 +608,52 @@ class CursesApp:
         cursor_index: int = 0,
         validator: Callable[[str], bool] = Field.default_validator,
     ) -> Optional[int]:
-        if len(items) <= 0:
+        items_count: int = len(items)
+
+        if items_count <= 0:
             logger.error("Not enough items given to select from")
             return None
 
         while True:
             try:
-                self.win.clear()
+                self.pad.clear()
 
-                self.win.addstr(prompt + "\n\n")
+                self.pad.addstr(prompt + "\n\n")
                 if headings:
-                    self.win.addstr("     " + headings + "\n")
+                    self.pad.addstr("     " + headings + "\n")
 
-                for this_index in range(len(items)):
+                visible_options = self.lines - 2
+                middle_index = visible_options / 2
+                if cursor_index > middle_index:
+                    start = int(cursor_index - middle_index)
+                    end = int(start + visible_options)
+                else:
+                    start = 0
+                    end = visible_options
+
+                for this_index in range(start, end):
+                    if this_index >= items_count:
+                        break
+
                     item = items[this_index]
                     if type(item) is not str:
                         logger.error(
                             "The given item is not a string:"
-                            "\n\ttype: "
-                            + str(type(item))
-                            + "\n\titem: "
-                            + str(item)
+                            "\n\ttype: " + str(type(item)) + "\n\titem: " + str(item)
                         )
                         return None
 
                     if cursor_index == this_index:
-                        self.win.addstr("===> ")
+                        self.pad.addstr("===> ")
                     else:
-                        self.win.addstr("     ")
+                        self.pad.addstr("     ")
 
-                    self.win.addstr(item + "\n")
+                    self.pad.addstr(item + "\n")
 
-                self.win.addstr("\n")
-                logger.show_all_as_curses(self._set_color, self.win.addstr)
+                self.pad.addstr("\n")
+                logger.show_all_as_curses(self._set_color, self.pad.addstr)
 
-                self.win.refresh()
+                self.refresh_pad(0)
 
                 key = self.screen.getkey()
 
@@ -705,9 +686,9 @@ class CursesApp:
 
         while True:
             try:
-                self.win.clear()
-                self.win.addstr(prompt + "\n\n: " + response)
-                self.win.refresh()
+                self.pad.clear()
+                self.pad.addstr(prompt + "\n\n: " + response)
+                self.refresh_pad(0)
 
                 self._show_cursor()
                 key = self.screen.getkey()
@@ -727,9 +708,7 @@ class CursesApp:
                 pass
 
     def get_device(self, min_bytes: int) -> Optional[str]:
-        devices = get(
-            "lsblk", "--nodeps", "--output", "path,size,rm,ro,pttype,ptuuid"
-        )
+        devices = get("lsblk", "--nodeps", "--output", "path,size,rm,ro,pttype,ptuuid")
         if not devices:
             logger.error("Failed to get device information from lsblk")
             return None
@@ -794,9 +773,7 @@ class CursesApp:
 
         timezones_list = timezones_str.splitlines()
 
-        selection_index = self.select(
-            "Select the new timezone:", timezones_list
-        )
+        selection_index = self.select("Select the new timezone:", timezones_list)
         if selection_index is None:
             logger.error("Failed to select a timezone")
             return None
@@ -862,9 +839,7 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
             if new_time_zone:
                 profile.time_zone.set(new_time_zone)
         elif cursor_index == 5:  # hostname
-            profile.hostname = app.input(
-                profile.hostname, "Enter the new hostname:"
-            )
+            profile.hostname = app.input(profile.hostname, "Enter the new hostname:")
         elif cursor_index == 6:  # root password
             profile.root_password = app.input(
                 profile.root_password,
@@ -954,7 +929,7 @@ def main() -> bool:
     args: Namespace = arg_parser.parse_args()
 
     # Declare the default package list.
-    packages: List[str] = ["moos"]
+    packages: List[str] = ["moos", "moos-xorg"]
 
     # Declare the default profile.
     profile = Profile()
@@ -983,9 +958,7 @@ def main() -> bool:
     if args.generate_conf:
         # Ensure that this operation does not overwrite existing files
         if os.path.exists(package_list_path):
-            logger.error(
-                "A package list already exists at " + package_list_path
-            )
+            logger.error("A package list already exists at " + package_list_path)
             return False
 
         if os.path.exists(profile_path):
@@ -999,15 +972,12 @@ def main() -> bool:
         # Generate example packages
         if not dump_packages(packages, package_list_path):
             logger.error(
-                "Failed to write an example package list to "
-                + package_list_path
+                "Failed to write an example package list to " + package_list_path
             )
             return False
 
         if not dump_profile(profile, profile_path):
-            logger.error(
-                "Failed to write an example profile to " + profile_path
-            )
+            logger.error("Failed to write an example profile to " + profile_path)
             return False
 
         quit(0)
@@ -1030,9 +1000,7 @@ def main() -> bool:
     if interactive:
         profile = interactive_conf(profile)
         if not profile:
-            logger.error(
-                "An operation failed during interactive profile configuration"
-            )
+            logger.error("An operation failed during interactive profile configuration")
             return False
 
     # If a device still hasn't been selected, cancel installation.
@@ -1062,8 +1030,7 @@ def main() -> bool:
         section("Unmounting all partitions on " + profile.device.get_str())
         if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
             logger.error(
-                "Failed to unmount all partitions on "
-                + profile.device.get_str()
+                "Failed to unmount all partitions on " + profile.device.get_str()
             )
             return False
 
@@ -1091,9 +1058,7 @@ def main() -> bool:
         "    echo w  ;"  # write changes
         ") | fdisk " + profile.device.get_str(),
     ):
-        logger.error(
-            "Failed to format and partition " + profile.device.get_str()
-        )
+        logger.error("Failed to format and partition " + profile.device.get_str())
         return False
 
     section("Creating filesystems on " + profile.device.get_str())
@@ -1118,9 +1083,7 @@ def main() -> bool:
 
     section("Syncing package databases")
     if profile.network_install.get():
-        if not run(
-            "pacman", "-Sy", "--noconfirm", "archlinux-keyring", quiet=False
-        ):
+        if not run("pacman", "-Sy", "--noconfirm", "archlinux-keyring", quiet=False):
             logger.error("Failed to sync package databases")
             return False
     else:
@@ -1171,9 +1134,7 @@ def main() -> bool:
 
     section("Unmounting all partitions on " + profile.device.get_str())
     if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
-        logger.error(
-            "Failed to unmount all partitions on " + profile.device.get_str()
-        )
+        logger.error("Failed to unmount all partitions on " + profile.device.get_str())
         return False
 
     logger.success("Installation complete!")
@@ -1218,9 +1179,7 @@ def post_pacstrap_setup(
         print(msg + "...")
 
     section("Installing the boot loader")
-    if not run(
-        "auto_limine", boot_part, "--label", profile.boot_label.get_str()
-    ):
+    if not run("auto_limine", boot_part, "--label", profile.boot_label.get_str()):
         logger.error("Failed to install the boot loader (Limine)")
         return False
 
@@ -1261,6 +1220,10 @@ def post_pacstrap_setup(
                 # Continue installation even if this fails
         else:
             logger.error("Failed to create the user")
+            # Continue installation even if this fails
+
+        if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
+            logger.error("Failed add the user to the libvirt group")
             # Continue installation even if this fails
 
         section("Providing root privileges to all members of the sudo group")
@@ -1347,9 +1310,20 @@ def post_pacstrap_setup(
         # Continue installation even if this fails
 
     # section("Enabling libvirtd")
-    # if not run("systemctl", "enable", "libvirtd.service"):
-    #     logger.error("Failed to enable the libvirtd service")
+    # if not run("systemctl", "enable", "libvirtd.socket"):
+    #     logger.error("Failed to enable the libvirtd socket for QEMU")
     #     # Continue installation even if this fails
+
+    # if not run("virsh", "net-autostart", "default"):
+    #     # TODO: Starting the 'default' network may depend on the 'dnsmasq' package.
+    #     logger.error(
+    #         "Failed to force the network interface for libvirt to start automatically"
+    #     )
+    #     # Continue installation even if this fails
+
+    if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
+        logger.error("Failed add the user to the libvirt group")
+        # Continue installation even if this fails
 
     section("Creating global policies for Firefox")
     if not run("reset_firefox_policies"):
