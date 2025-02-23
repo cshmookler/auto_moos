@@ -430,7 +430,7 @@ class Profile:
     username: Field = Field("main", str, validator=Field.name_validator)
     user_password: Field = Field("main", str, validator=Field.password_validator)
     sudo_group: Field = Field("wheel", str, validator=Field.name_validator)
-    restart: Field = Field(True, bool)
+    restart: Field = Field(False, bool)
 
     def to_dict(self) -> dict:
         return {field.name: getattr(self, field.name).get() for field in fields(self)}
