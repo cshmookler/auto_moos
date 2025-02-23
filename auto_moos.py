@@ -929,7 +929,7 @@ def main() -> bool:
     args: Namespace = arg_parser.parse_args()
 
     # Declare the default package list.
-    packages: List[str] = ["moos", "moos-xorg"]
+    packages: List[str] = ["moos", "moos-xorg", "moos-sshd-conf"]
 
     # Declare the default profile.
     profile = Profile()
