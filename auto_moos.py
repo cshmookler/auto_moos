@@ -1161,6 +1161,7 @@ def main() -> bool:
 
     section("Writing to the log file and printing accumulated messages")
     logger.show_all_as_ansi()  # Write to the log file
+    logger.cleanup()
 
     section("Copying the log file to the root home directory in the root partition")
     new_log_file_path = root_mount + "/root/.auto_moos_log"
