@@ -318,6 +318,37 @@ def get_device(min_size: int) -> Optional[str]:
     return None
 
 
+def get_part(device_path: str, part_num: int) -> Optional[str]:
+    """Get the path to a partition with a given number on a given device to format for installation"""
+
+    parts = get(
+        "lsblk",
+        "--noheadings",
+        "--output",
+        "path",
+        device_path,
+    )
+    if not parts:
+        logger.error("Failed to get partitions from lsblk for" + device_path)
+        return None
+
+    parts = parts.splitlines()
+
+    if part_num >= len(parts):
+        logger.error(
+            "The given part number ("
+            + str(part_num)
+            + ") is larger than the number of partitions on "
+            + device_path
+            + "("
+            + str(len(parts) - 1)
+            + ")"
+        )
+        return None
+
+    return parts[part_num]
+
+
 class Field:
     @staticmethod
     def default_validator(_: str) -> bool:
@@ -1086,9 +1117,17 @@ def main() -> bool:
         logger.error("Failed to format and partition " + profile.device.get_str())
         return False
 
+    section("Identifying the new partitions")
+    boot_part = get_part(profile.device.get_str(), boot_part_num)
+    if boot_part is None:
+        logger.error("Failed to find the path to the boot partition")
+        return False
+    root_part = get_part(profile.device.get_str(), root_part_num)
+    if root_part is None:
+        logger.error("Failed to find the path to the root partition")
+        return False
+
     section("Creating filesystems on " + profile.device.get_str())
-    boot_part = profile.device.get_str() + str(boot_part_num)
-    root_part = profile.device.get_str() + str(root_part_num)
     if not run("mkfs.fat", "-F", "32", boot_part):
         logger.error("Failed to create a FAT32 filesystem on " + boot_part)
         return False
