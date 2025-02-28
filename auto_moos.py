@@ -462,7 +462,6 @@ class Profile:
     username: Field = Field("main", str, validator=Field.name_validator)
     user_password: Field = Field("main", str, validator=Field.password_validator)
     sudo_group: Field = Field("wheel", str, validator=Field.name_validator)
-    restart: Field = Field(False, bool)
 
     def to_dict(self) -> dict:
         return {field.name: getattr(self, field.name).get() for field in fields(self)}
@@ -824,8 +823,7 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
         username = 8
         user_password = 9
         sudo_group = 10
-        restart = 11
-        begin_installation = 12
+        begin_installation = 11
 
     while True:
         cursor_index = app.select(
@@ -841,8 +839,7 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
                 "   root password  ->  " + profile.root_password.get_str(),
                 "        username  ->  " + profile.username.get_str(),
                 "   user password  ->  " + profile.user_password.get_str(),
-                "      sudo group  ->  " + profile.sudo_group.get_str(),
-                "         restart  ->  " + profile.restart.get_str() + "\n",
+                "      sudo group  ->  " + profile.sudo_group.get_str() + "\n",
                 "Begin Installation",
             ],
             cursor_index=cursor_index,
@@ -908,16 +905,6 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
                 profile.sudo_group,
                 "Enter the new name for the sudo group:",
             )
-        elif cursor_index == int(Index.restart):
-            selection_index = app.select(
-                "Enable restart after installation?",
-                [
-                    "No. Do not restart once installation is complete.",
-                    "Yes. Restart once installation is complete.",
-                ],
-            )
-            if selection_index is not None:
-                profile.restart.set(bool(selection_index))
         elif cursor_index == int(Index.begin_installation):
             if profile.device.get() is not None:
                 break
@@ -977,7 +964,7 @@ def main() -> bool:
     args: Namespace = arg_parser.parse_args()
 
     # Declare the default package list.
-    headless_packages: List[str] = ["moos", "moos-sshd-conf"]
+    headless_packages: List[str] = ["moos", "moos-sshd-conf", "moos-headless"]
     graphical_packages: List[str] = ["moos", "moos-sshd-conf", "moos-xorg"]
 
     # Declare the default profile.
@@ -1216,17 +1203,6 @@ def main() -> bool:
     if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
         logger.error("Failed to unmount all partitions on " + profile.device.get_str())
 
-    restart_timeout: int = 10
-    if profile.restart.get():
-        sep()
-        print("All logs will be stored to " + log_file_path + ".")
-        print("Type CTRL-C to cancel the restart.")
-        for i in range(restart_timeout):
-            sleep(1)
-            print("Restarting in " + str(restart_timeout - i) + "...")
-
-        run("shutdown", "-r", "now")
-
     return True
 
 
@@ -1419,6 +1395,27 @@ def post_pacstrap_setup(
         if not run("reset_firefox_policies"):
             logger.error("Failed to create global policies for Firefox")
             # Continue installation even if this fails
+
+    if profile.headless.get():
+        hotspot_ssid = get("cat", "/etc/moos-hotspot/ssid")
+        if hotspot_ssid is None:
+            logger.error("Failed to retrieve the SSH ssid")
+        else:
+            logger.success("WiFi hotspot SSID: " + str(hotspot_ssid))
+
+        hotspot_password = get("cat", "/etc/moos-hotspot/password")
+        if hotspot_password is None:
+            logger.error(
+                "Failed to retrieve the password for the WiFi hotspot (Access Point)"
+            )
+        else:
+            logger.success("WiFi hotspot password: " + str(hotspot_password))
+
+        ssh_port = get("head", "-n", "1", "/etc/ssh/sshd_config.d/10-secure.conf")
+        if ssh_port is None:
+            logger.error("Failed to retrieve the SSH port")
+        else:
+            logger.success("SSH " + str(ssh_port))
 
     return True
 
