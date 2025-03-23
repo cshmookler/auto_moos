@@ -926,6 +926,11 @@ def main() -> bool:
     signal(SIGINT, lambda c, _: show_errors_and_quit(status=False))
     signal(SIGTERM, lambda c, _: show_errors_and_quit(status=False))
 
+    # Ensure that this program is being run as root.
+    if os.geteuid() != 0:
+        logger.error("This program must be run as root")
+        return False
+
     # Define the help message and arguments.
     arg_parser = ArgumentParser(
         prog="auto_moos",
