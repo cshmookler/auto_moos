@@ -1192,7 +1192,8 @@ def main() -> bool:
 
     section("Copying authorized SSH keys to the root partition")
     if not run(
-        "cp",
+        "install",
+        "-Dm600",
         "/root/.ssh/authorized_keys",
         root_mount + "/home/" + profile.username.get_str() + "/.ssh/authorized_keys",
     ):
