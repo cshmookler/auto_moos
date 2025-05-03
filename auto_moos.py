@@ -1402,6 +1402,12 @@ def post_pacstrap_setup(
             # Continue installation even if this fails
 
     if profile.headless.get():
+        section("Enabling Hotspot")
+        if not run("systemctl", "enable", "moos-hotspot.service"):
+            logger.error("Failed to enable the moos-hotspot service")
+            # Continue installation even if this fails
+
+    if profile.headless.get():
         hotspot_ssid = get("cat", "/etc/moos-hotspot/ssid")
         if hotspot_ssid is None:
             logger.error("Failed to retrieve the SSH ssid")
