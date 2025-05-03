@@ -1415,10 +1415,19 @@ def post_pacstrap_setup(
 
     if profile.headless.get():
         hotspot_ssid = get("cat", "/etc/moos-hotspot/ssid")
-        if hotspot_ssid is None:
-            logger.error("Failed to retrieve the SSH ssid")
+        if hotspot_ssid is not None:
+            if len(hotspot_ssid) != 0:
+                logger.success("WiFi hotspot SSID: " + str(hotspot_ssid))
+            else:
+                hostname = get("cat", "/etc/hostname")
+                if hostname is not None:
+                    logger.success("WiFi hotspot SSID: " + str(hostname))
+                else:
+                    logger.error("Failed to retrieve the hotspot SSID /etc/hostname")
         else:
-            logger.success("WiFi hotspot SSID: " + str(hotspot_ssid))
+            logger.error(
+                "Failed to retrieve the hotspot SSID from /etc/moos-hotspot/ssid"
+            )
 
         hotspot_password = get("cat", "/etc/moos-hotspot/password")
         if hotspot_password is None:
