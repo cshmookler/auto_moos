@@ -1191,13 +1191,22 @@ def main() -> bool:
     remove(root_mount + "/auto_moos.py")  # Do nothing if this fails
 
     section("Copying authorized SSH keys to the root partition")
+    ssh_directory: str = root_mount + "/home/" + profile.username.get_str() + "/.ssh"
     if not run(
         "install",
         "-Dm600",
+        "-o",
+        profile.username.get_str(),
         "/root/.ssh/authorized_keys",
-        root_mount + "/home/" + profile.username.get_str() + "/.ssh/authorized_keys",
+        ssh_directory + "/authorized_keys",
     ):
         logger.error("Failed to copy authorized SSH keys to the root partition")
+        # Continue installation even if this fails
+    if not run("chmod", "700", ssh_directory):
+        logger.error("Failed to set the file permissions of the SSH directory")
+        # Continue installation even if this fails
+    if not run("chown", profile.username.get_str(), ssh_directory):
+        logger.error("Failed to set the ownership of the SSH directory")
         # Continue installation even if this fails
 
     logger.success("Installation complete!")
