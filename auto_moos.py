@@ -827,7 +827,9 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
 
     while True:
         cursor_index = app.select(
-            "Select a field to change before installation:",
+            "All SSH public keys appended to /root/authorized_keys will be copied to the new installation.\n"
+            + "If you haven't already, append your SSH public key to /root/authorized_keys so you'll have SSH access to the new installation.\n\n"
+            + "Select a field to change before installation:",
             [
                 "        headless  ->  " + profile.headless.get_str(),
                 " network install  ->  " + profile.network_install.get_str(),
