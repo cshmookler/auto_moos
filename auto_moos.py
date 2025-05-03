@@ -1424,24 +1424,28 @@ def post_pacstrap_setup(
                     logger.success("WiFi hotspot SSID: " + str(hostname))
                 else:
                     logger.error("Failed to retrieve the hotspot SSID /etc/hostname")
+                    # Continue installation even if this fails
         else:
             logger.error(
                 "Failed to retrieve the hotspot SSID from /etc/moos-hotspot/ssid"
             )
+            # Continue installation even if this fails
 
         hotspot_password = get("cat", "/etc/moos-hotspot/password")
         if hotspot_password is None:
             logger.error(
                 "Failed to retrieve the password for the WiFi hotspot (Access Point)"
             )
+            # Continue installation even if this fails
         else:
             logger.success("WiFi hotspot password: " + str(hotspot_password))
 
-        ssh_port = get("head", "-n", "1", "/etc/ssh/sshd_config.d/10-secure.conf")
-        if ssh_port is None:
-            logger.error("Failed to retrieve the SSH port")
-        else:
+        ssh_port = get("head", "-c", "15", "/etc/ssh/sshd_config.d/10-secure.conf")
+        if ssh_port is not None:
             logger.success("SSH " + str(ssh_port))
+        else:
+            logger.error("Failed to retrieve the SSH port")
+            # Continue installation even if this fails
 
     return True
 
