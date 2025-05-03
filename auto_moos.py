@@ -1401,6 +1401,12 @@ def post_pacstrap_setup(
             logger.error("Failed to create global policies for Firefox")
             # Continue installation even if this fails
 
+    if not profile.headless.get():
+        section("Enabling the special keys backlight service")
+        if not run("systemctl", "enable", "special-keys-backlight.service"):
+            logger.error("Failed to enable the special-keys-backlight service")
+            # Continue installation even if this fails
+
     if profile.headless.get():
         section("Enabling Hotspot")
         if not run("systemctl", "enable", "moos-hotspot.service"):
