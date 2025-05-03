@@ -1188,6 +1188,15 @@ def main() -> bool:
     section("Removing this script from the root partition")
     remove(root_mount + "/auto_moos.py")  # Do nothing if this fails
 
+    section("Copying authorized SSH keys to the root partition")
+    if not run(
+        "cp",
+        "/root/.ssh/authorized_keys",
+        root_mount + "/home/" + profile.username.get_str() + "/.ssh/authorized_keys",
+    ):
+        logger.error("Failed to copy authorized SSH keys to the root partition")
+        # Continue installation even if this fails
+
     logger.success("Installation complete!")
 
     section("Writing to the log file and printing accumulated messages")
@@ -1408,7 +1417,7 @@ def post_pacstrap_setup(
             # Continue installation even if this fails
 
     if profile.headless.get():
-        section("Enabling Hotspot")
+        section("Enabling the hotspot")
         if not run("systemctl", "enable", "moos-hotspot.service"):
             logger.error("Failed to enable the moos-hotspot service")
             # Continue installation even if this fails
