@@ -96,55 +96,42 @@ class Message:
 
 class Logger:
     def __init__(self, level: Level) -> None:
-        self._log = Queue()
-        self._level = level
-        self._log_file = None
-        atexit.register(self.cleanup)
+        self.level: Level = level
+        self.cache: list[Message] = list()
+        self.log_file = "/dev/null"
 
-    def cleanup(self) -> None:
-        self.show_all_as_ansi()
-        if self._log_file is not None:
-            self._log_file.close()
+    def set_log_file(self, path: str) -> None:
+        self.log_file = path
 
-    def _put(self, msg: str, level: Level) -> None:
-        self._log.put(Message(msg, level), block=False)
+    def clear_log_file(self) -> None:
+        with open(self.log_file, "w") as file:
+            pass
+
+    def set_level(self, level: Level) -> None:
+        self.level = level
+
+    def _log(self, msg: str, level: Level) -> None:
+        self.cache.append(Message(msg, level))
+        with open(self.log_file, "a") as file:
+            file.write(msg + "\n")
 
     def normal(self, msg: str) -> None:
-        self._put(msg, Level.normal)
+        self._log(msg, Level.normal)
 
     def success(self, msg: str) -> None:
-        self._put(msg, Level.success)
+        self._log(msg, Level.success)
 
     def error(self, msg: str) -> None:
-        self._put("  [Error] " + msg + ".", Level.error)
+        self._log("  [Error] " + msg + ".", Level.error)
 
     def warning(self, msg: str) -> None:
-        self._put("[Warning] " + msg + ".", Level.warning)
+        self._log("[Warning] " + msg + ".", Level.warning)
 
     def info(self, msg: str) -> None:
-        self._put("   [Info] " + msg + ".", Level.info)
+        self._log("   [Info] " + msg + ".", Level.info)
 
     def verbose(self, msg: str) -> None:
-        self._put("[Verbose] " + msg + ".", Level.verbose)
-
-    def set_log_file(self, path: str) -> bool:
-        try:
-            self._log_file = open(path, "w")
-            return True
-        except:
-            return False
-
-    def set_log_level(self, level: Level) -> None:
-        self._level = level
-
-    def _get_next(self) -> Optional[Message]:
-        try:
-            msg: Message = self._log.get_nowait()
-        except:
-            return None
-        if self._log_file is not None:
-            self._log_file.write(msg.raw + "\n")
-        return msg
+        self._log("[Verbose] " + msg + ".", Level.verbose)
 
     @staticmethod
     def _green(msg: str) -> str:
@@ -162,47 +149,40 @@ class Logger:
     def _blue(msg: str) -> str:
         return "\033[1;34m" + msg + "\033[0m"
 
-    @staticmethod
-    def _as_ansi(msg: str, level: Level) -> str:
-        if level == Level.normal:
-            return msg
-        if level == Level.success:
-            return Logger._green(msg)
-        if level == Level.error:
-            return Logger._red(msg)
-        if level == Level.warning:
-            return Logger._yellow(msg)
-        if level == Level.info:
-            return Logger._blue(msg)
-        if level == Level.verbose:
-            return msg
-
-        return "[Unknown] " + msg
-
-    def show_all_as_ansi(self) -> None:
-        while not self._log.empty():
-            msg: Optional[Message] = self._get_next()
-            if msg is None:
-                break
-            if msg.level > self._level:
-                break
-            print(Logger._as_ansi(msg.raw, msg.level))
-
-    def show_all_as_curses(
-        self,
-        color_setter: Callable[[Level], None],
-        writer: Callable[[str], None],
+    def dump_cache(
+        self, color_setter: Callable[[Level], None], writer: Callable[[str], None]
     ) -> None:
-        while not self._log.empty():
-            msg: Optional[Message] = self._get_next()
-            if msg is None:
-                break
-            if msg.level > self._level:
+        for msg in self.cache:
+            if msg.level > self.level:
                 break
 
             color_setter(msg.level)
             writer(msg.raw + "\n")
             color_setter(Level.normal)
+
+        self.cache = list()
+
+    def print_cache(self) -> None:
+        for msg in self.cache:
+            if msg.level > self.level:
+                break
+
+            if msg.level == Level.normal:
+                print(msg.raw)
+            elif msg.level == Level.success:
+                print(Logger._green(msg.raw))
+            elif msg.level == Level.error:
+                print(Logger._red(msg.raw))
+            elif msg.level == Level.warning:
+                print(Logger._yellow(msg.raw))
+            elif msg.level == Level.info:
+                print(Logger._blue(msg.raw))
+            elif msg.level == Level.verbose:
+                print(msg.raw)
+            else:
+                print(msg.raw)
+
+        self.cache = list()
 
 
 # The global logger object.
@@ -672,7 +652,7 @@ class CursesApp:
                     self.pad.addstr(item + "\n")
 
                 self.pad.addstr("\n")
-                logger.show_all_as_curses(self._set_color, self.pad.addstr)
+                logger.dump_cache(self._set_color, self.pad.addstr)
 
                 self.refresh_pad(0)
 
@@ -729,12 +709,14 @@ class CursesApp:
                 pass
 
     def get_device(self, min_bytes: int) -> Optional[str]:
-        devices = get("lsblk", "--nodeps", "--output", "path,size,rm,ro,pttype,ptuuid")
-        if not devices:
+        devices_result = get(
+            "lsblk", "--nodeps", "--output", "path,size,rm,ro,pttype,ptuuid"
+        )
+        if not devices_result:
             logger.error("Failed to get device information from lsblk")
             return None
 
-        devices = str(devices).splitlines()
+        devices = str(devices_result).splitlines()
         if len(devices) <= 1:
             logger.error("Not enough devices listed")
             return None
@@ -925,8 +907,8 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
 
 def main() -> bool:
     # Setup signal handlers.
-    signal(SIGINT, lambda c, _: show_errors_and_quit(status=False))
-    signal(SIGTERM, lambda c, _: show_errors_and_quit(status=False))
+    signal(SIGINT, lambda c, _: quit(1))
+    signal(SIGTERM, lambda c, _: quit(1))
 
     # Ensure that this program is being run as root.
     if os.geteuid() != 0:
@@ -991,9 +973,8 @@ def main() -> bool:
         log_file_path = make_absolute(args.log_file)
     else:
         log_file_path = home_dir + "/.auto_moos_log"
-    if not logger.set_log_file(log_file_path):
-        logger.error("Failed to open the log file at " + log_file_path)
-        return False
+    logger.set_log_file(log_file_path)
+    logger.clear_log_file()
 
     package_list_path = conf_dir + "/packages"
     profile_path = conf_dir + "/profile.json"
@@ -1036,10 +1017,11 @@ def main() -> bool:
 
     # If running in interactive mode, prompt the user to verify the profile.
     if interactive:
-        profile = interactive_conf(profile)
-        if not profile:
+        profile_result = interactive_conf(profile)
+        if not profile_result:
             logger.error("An operation failed during interactive profile configuration")
             return False
+        profile = profile_result
 
     # If a device still hasn't been selected, cancel installation.
     if profile.device.get() is None:
@@ -1211,10 +1193,6 @@ def main() -> bool:
 
     logger.success("Installation complete!")
 
-    section("Writing to the log file and printing accumulated messages")
-    logger.show_all_as_ansi()  # Write to the log file
-    logger.cleanup()
-
     section("Copying the log file to the root home directory in the root partition")
     new_log_file_path = root_mount + "/root/.auto_moos_log"
     if not run("cp", log_file_path, new_log_file_path):
@@ -1230,11 +1208,6 @@ def main() -> bool:
         logger.error("Failed to unmount all partitions on " + profile.device.get_str())
 
     return True
-
-
-def show_errors_and_quit(status: bool) -> None:
-    logger.show_all_as_ansi()
-    quit(not status)
 
 
 def post_pacstrap_setup(
@@ -1269,6 +1242,10 @@ def post_pacstrap_setup(
         if run(
             "useradd",
             "--create-home",
+            "--skel",
+            "/etc/moos-skel",
+            "--shell",
+            "/usr/bin/bash",
             "--user-group",
             "--groups",
             profile.sudo_group.get_str(),
@@ -1283,17 +1260,6 @@ def post_pacstrap_setup(
             ):
                 logger.error("Failed to set the user password")
                 # Continue installation even if this fails
-
-            if not profile.headless.get():
-                section("Creating the user environment")
-                if not run(
-                    "sudo",
-                    "-u",
-                    profile.username.get_str(),
-                    "reset_user_env",
-                ):
-                    logger.error("Failed to create the user environment")
-                    # Continue installation even if this fails
         else:
             logger.error("Failed to create the user")
             # Continue installation even if this fails
@@ -1417,12 +1383,6 @@ def post_pacstrap_setup(
             # Continue installation even if this fails
 
     if not profile.headless.get():
-        section("Creating global policies for Firefox")
-        if not run("reset_firefox_policies"):
-            logger.error("Failed to create global policies for Firefox")
-            # Continue installation even if this fails
-
-    if not profile.headless.get():
         section("Enabling the special keys backlight service")
         if not run("systemctl", "enable", "special-keys-backlight.service"):
             logger.error("Failed to enable the special-keys-backlight service")
@@ -1472,4 +1432,6 @@ def post_pacstrap_setup(
 
 
 if __name__ == "__main__":
-    show_errors_and_quit(main())
+    return_code = not main()
+    logger.print_cache()
+    quit(return_code)
