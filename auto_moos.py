@@ -1040,7 +1040,7 @@ def main() -> bool:
     # Ensure that the authorized_keys directory is created if installing as headless.
     if profile.headless.get() and not os.path.exists("/root/.ssh/authorized_keys"):
         logger.error(
-            "Create the /root/.ssh/authorized_keys directory and copy your SSH public keys to it so you can connect remotely to this system."
+            "Create the /root/.ssh/authorized_keys directory and copy your SSH public keys to it so you can connect remotely to this system"
         )
         return False
 
