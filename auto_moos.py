@@ -29,7 +29,7 @@ home_dir = os.path.expanduser("~")
 def run(
     *args,
     input: str | None = None,
-    quiet: bool = True,
+    quiet: bool = False,
     env: Dict[str, str] | None = None,
 ) -> bool:
     return (
@@ -44,7 +44,7 @@ def run(
     )
 
 
-def get(*args) -> str | None:
+def get(*args, quiet: bool = False) -> str | None:
     result = subprocess.run(args, capture_output=True)
     if result.returncode == 0:
         return result.stdout.decode().strip()
@@ -60,11 +60,11 @@ def write(path: str, mode: str, text: str) -> bool:
     return True
 
 
-def copy(src: str, dst: str) -> bool:
+def copy(src: str, dst: str, quiet: bool = False) -> bool:
     return run("cp", "-r", src, dst)
 
 
-def remove(path: str) -> bool:
+def remove(path: str, quiet: bool = False) -> bool:
     return run("rm", "-rf", path)
 
 
@@ -199,6 +199,7 @@ def list_all_devices() -> Optional[List[str]]:
         "--nodeps",
         "--output",
         "path",
+        quiet=True,
     )
     if not devices:
         logger.error("Failed to get device information from lsblk")
@@ -216,6 +217,7 @@ def is_device_valid(dev_path: str, min_dev_bytes: int) -> bool:
         "--output",
         "path,size",
         dev_path,
+        quiet=True,
     )
     if not dev_info:
         logger.error(
@@ -257,7 +259,7 @@ def is_device_valid(dev_path: str, min_dev_bytes: int) -> bool:
 
 
 def device_lacks_partitions(dev_path: str) -> Optional[bool]:
-    parts = get("lsblk", "--noheadings", "--output", "path", dev_path)
+    parts = get("lsblk", "--noheadings", "--output", "path", dev_path, quiet=True)
     if not parts:
         logger.error("Failed to use lsblk to list partitions on device: " + dev_path)
         return None
@@ -307,6 +309,7 @@ def get_part(device_path: str, part_num: int) -> Optional[str]:
         "--output",
         "path",
         device_path,
+        quiet=True,
     )
     if not parts:
         logger.error("Failed to get partitions from lsblk for" + device_path)
@@ -710,7 +713,11 @@ class CursesApp:
 
     def get_device(self, min_bytes: int) -> Optional[str]:
         devices_result = get(
-            "lsblk", "--nodeps", "--output", "path,size,rm,ro,pttype,ptuuid"
+            "lsblk",
+            "--nodeps",
+            "--output",
+            "path,size,rm,ro,pttype,ptuuid",
+            quiet=True,
         )
         if not devices_result:
             logger.error("Failed to get device information from lsblk")
@@ -769,7 +776,7 @@ class CursesApp:
         return device_info[0]
 
     def get_time_zone(self) -> Optional[str]:
-        timezones_str = get("timedatectl", "list-timezones", "--no-pager")
+        timezones_str = get("timedatectl", "list-timezones", "--no-pager", quiet=True)
         if not timezones_str:
             logger.error("Failed to get the list of timezones from timedatectl")
             return None
@@ -900,7 +907,7 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
     app.cleanup()
 
     # Attempt to clear the screen after field selection is complete.
-    run("clear", quiet=False)  # Do nothing if this fails
+    run("clear")  # Do nothing if this fails
 
     return profile
 
@@ -1123,16 +1130,16 @@ def main() -> bool:
 
     section("Syncing package databases")
     if profile.network_install.get():
-        if not run("pacman", "-Sy", "--noconfirm", "archlinux-keyring", quiet=False):
+        if not run("pacman", "-Sy", "--noconfirm", "archlinux-keyring"):
             logger.error("Failed to sync package databases")
             return False
     else:
-        if not run("pacman", "-Sy", quiet=False):
+        if not run("pacman", "-Sy"):
             logger.error("Failed to sync package databases")
             return False
 
     section("Installing packages with pacstrap")
-    if not run("pacstrap", "-K", root_mount, *packages, quiet=False):
+    if not run("pacstrap", "-K", root_mount, *packages):
         logger.error("Failed to install essential packages")
         return False
 
@@ -1148,18 +1155,16 @@ def main() -> bool:
     section("Copying authorized SSH keys to the root partition")
     ssh_directory: str = root_mount + "/home/" + profile.username.get_str() + "/.ssh"
     if not run(
-        "install",
-        "-Dm600",
+        "rsync",
+        "--recursive",
+        "--chmod=600",
         "/root/.ssh/authorized_keys",
-        ssh_directory + "/authorized_keys",
+        ssh_directory,
     ):
         logger.error("Failed to copy authorized SSH keys to the root partition")
         # Continue installation even if this fails
     if not run("chmod", "700", ssh_directory):
         logger.error("Failed to set the file permissions of the SSH directory")
-        # Continue installation even if this fails
-    if not run("chown", profile.username.get_str(), ssh_directory):
-        logger.error("Failed to set the ownership of the SSH directory")
         # Continue installation even if this fails
 
     section("Copying this script to the root partition")
@@ -1181,7 +1186,6 @@ def main() -> bool:
         ")\n"
         "logger.print_cache()\n"
         "quit(return_code)\n",
-        quiet=False,
     ):
         logger.error("Failed operation while root was changed to " + root_mount)
         return False
@@ -1264,7 +1268,7 @@ def post_pacstrap_setup(
                 "chown",
                 "-R",
                 "main:main",
-                "/home/" + profile.username.get_str() + "/.ssh/authorized_keys",
+                "/home/" + profile.username.get_str() + "/.ssh",
             ):
                 logger.error(
                     "Failed to update the file ownership for authorized SSH keys"
