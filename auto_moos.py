@@ -1145,6 +1145,23 @@ def main() -> bool:
         logger.error("Failed to write to " + root_mount + "/etc/fstab")
         return False
 
+    section("Copying authorized SSH keys to the root partition")
+    ssh_directory: str = root_mount + "/home/" + profile.username.get_str() + "/.ssh"
+    if not run(
+        "install",
+        "-Dm600",
+        "/root/.ssh/authorized_keys",
+        ssh_directory + "/authorized_keys",
+    ):
+        logger.error("Failed to copy authorized SSH keys to the root partition")
+        # Continue installation even if this fails
+    if not run("chmod", "700", ssh_directory):
+        logger.error("Failed to set the file permissions of the SSH directory")
+        # Continue installation even if this fails
+    if not run("chown", profile.username.get_str(), ssh_directory):
+        logger.error("Failed to set the ownership of the SSH directory")
+        # Continue installation even if this fails
+
     section("Copying this script to the root partition")
     if not copy(__file__, root_mount + "/auto_moos.py"):
         logger.error("Failed to copy this script to " + root_mount + "/root")
@@ -1171,25 +1188,6 @@ def main() -> bool:
 
     section("Removing this script from the root partition")
     remove(root_mount + "/auto_moos.py")  # Do nothing if this fails
-
-    section("Copying authorized SSH keys to the root partition")
-    ssh_directory: str = root_mount + "/home/" + profile.username.get_str() + "/.ssh"
-    if not run(
-        "install",
-        "-Dm600",
-        "-o",
-        profile.username.get_str(),
-        "/root/.ssh/authorized_keys",
-        ssh_directory + "/authorized_keys",
-    ):
-        logger.error("Failed to copy authorized SSH keys to the root partition")
-        # Continue installation even if this fails
-    if not run("chmod", "700", ssh_directory):
-        logger.error("Failed to set the file permissions of the SSH directory")
-        # Continue installation even if this fails
-    if not run("chown", profile.username.get_str(), ssh_directory):
-        logger.error("Failed to set the ownership of the SSH directory")
-        # Continue installation even if this fails
 
     logger.success("Installation complete!")
 
@@ -1259,6 +1257,18 @@ def post_pacstrap_setup(
                 + profile.user_password.get_str(),
             ):
                 logger.error("Failed to set the user password")
+                # Continue installation even if this fails
+
+            section("Updating file ownership for authorized SSH keys")
+            if not run(
+                "chown",
+                "-R",
+                "main:main",
+                "/home/" + profile.username.get_str() + "/.ssh/authorized_keys",
+            ):
+                logger.error(
+                    "Failed to update the file ownership for authorized SSH keys"
+                )
                 # Continue installation even if this fails
         else:
             logger.error("Failed to create the user")
