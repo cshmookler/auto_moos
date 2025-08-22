@@ -1037,10 +1037,10 @@ def main() -> bool:
         )
         return False
 
-    # Ensure that the authorized_keys directory is created if installing as headless.
+    # Ensure that authorized_keys is created if installing as headless.
     if profile.headless.get() and not os.path.exists("/root/.ssh/authorized_keys"):
         logger.error(
-            "Create the /root/.ssh/authorized_keys directory and copy your SSH public keys to it so you can connect remotely to this system"
+            "Headless installation requires at least one public key in /root/.ssh/authorized_keys so it's possible to remotely login"
         )
         return False
 
@@ -1190,17 +1190,16 @@ def main() -> bool:
     section("Copying authorized SSH keys to the root partition")
     home_directory: str = root_mount + "/home/" + profile.username.get_str()
     ssh_directory: str = home_directory + "/.ssh"
+    if not run("mkdir", "--parents", "--mode", "700", ssh_directory):
+        logger.error("Failed to create the SSH directory")
+        return False
     if not run(
         "rsync",
-        "--recursive",
         "--chmod=600",
         "/root/.ssh/authorized_keys",
-        ssh_directory,
+        ssh_directory + "/authorized_keys",
     ):
         logger.error("Failed to copy authorized SSH keys to the root partition")
-        return False
-    if not run("chmod", "700", ssh_directory):
-        logger.error("Failed to set the file permissions of the SSH directory")
         return False
     if not run(
         "arch-chroot",
