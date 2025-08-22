@@ -1037,6 +1037,13 @@ def main() -> bool:
         )
         return False
 
+    # Ensure that the authorized_keys directory is created if installing as headless.
+    if profile.headless.get() and not os.path.exists("/root/.ssh/authorized_keys"):
+        logger.error(
+            "Create the /root/.ssh/authorized_keys directory and copy your SSH public keys to it so you can connect remotely to this system."
+        )
+        return False
+
     # Select the base package list based on the profile.
     if profile.headless.get():
         base_packages = headless_packages
