@@ -30,7 +30,7 @@ def run(
     *args,
     input: str | None = None,
     quiet: bool = True,
-    env: Dict[str, str] | None = None
+    env: Dict[str, str] | None = None,
 ) -> bool:
     return (
         subprocess.run(
@@ -1156,14 +1156,14 @@ def main() -> bool:
         root_mount,
         "python",
         "-Bc",
-        "from auto_moos import show_errors_and_quit, post_pacstrap_setup\n"
+        "from auto_moos import logger, post_pacstrap_setup\n"
         "\n"
-        "show_errors_and_quit(\n"
-        "    post_pacstrap_setup(\n"
-        "        profile_dict=" + str(profile.to_dict()) + ",\n"
-        "        boot_part='" + boot_part + "',\n"
-        "    )\n"
-        ")",
+        "return_code = not post_pacstrap_setup(\n"
+        f"    profile_dict={str(profile.to_dict())},\n"
+        f"    boot_part='{boot_part}',\n"
+        ")\n"
+        "logger.print_cache()\n"
+        "quit(return_code)\n",
         quiet=False,
     ):
         logger.error("Failed operation while root was changed to " + root_mount)
@@ -1342,12 +1342,6 @@ def post_pacstrap_setup(
         logger.error("Failed to enable the sshd service")
         # Continue installation even if this fails
 
-    if not profile.headless.get():
-        section("Enabling the backlight service for special_keys")
-        if not run("systemctl", "enable", "special-keys-backlight.service"):
-            logger.error("Failed to enable the special_keys backlight service")
-            # Continue installation even if this fails
-
     section("Enabling Open-VM-Tools")
     if not run("systemctl", "enable", "vmtoolsd.service"):
         logger.error("Failed to enable the vmtoolsd service for Open-VM-Tools")
@@ -1380,12 +1374,6 @@ def post_pacstrap_setup(
             # Continue installation even if this fails
         if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
             logger.error("Failed add the user to the libvirt group")
-            # Continue installation even if this fails
-
-    if not profile.headless.get():
-        section("Enabling the special keys backlight service")
-        if not run("systemctl", "enable", "special-keys-backlight.service"):
-            logger.error("Failed to enable the special-keys-backlight service")
             # Continue installation even if this fails
 
     if profile.headless.get():
