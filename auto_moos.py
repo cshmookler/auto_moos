@@ -1152,21 +1152,6 @@ def main() -> bool:
         logger.error("Failed to write to " + root_mount + "/etc/fstab")
         return False
 
-    section("Copying authorized SSH keys to the root partition")
-    ssh_directory: str = root_mount + "/home/" + profile.username.get_str() + "/.ssh"
-    if not run(
-        "rsync",
-        "--recursive",
-        "--chmod=600",
-        "/root/.ssh/authorized_keys",
-        ssh_directory,
-    ):
-        logger.error("Failed to copy authorized SSH keys to the root partition")
-        # Continue installation even if this fails
-    if not run("chmod", "700", ssh_directory):
-        logger.error("Failed to set the file permissions of the SSH directory")
-        # Continue installation even if this fails
-
     section("Copying this script to the root partition")
     if not copy(__file__, root_mount + "/auto_moos.py"):
         logger.error("Failed to copy this script to " + root_mount + "/root")
@@ -1191,7 +1176,35 @@ def main() -> bool:
         return False
 
     section("Removing this script from the root partition")
-    remove(root_mount + "/auto_moos.py")  # Do nothing if this fails
+    if not remove(root_mount + "/auto_moos.py"):
+        logger.error("Failed to remove this script from the root partition")
+        # Continue installation even if this fails
+
+    section("Copying authorized SSH keys to the root partition")
+    home_directory: str = root_mount + "/home/" + profile.username.get_str()
+    ssh_directory: str = home_directory + "/.ssh"
+    if not run(
+        "rsync",
+        "--recursive",
+        "--chmod=600",
+        "/root/.ssh/authorized_keys",
+        ssh_directory,
+    ):
+        logger.error("Failed to copy authorized SSH keys to the root partition")
+        return False
+    if not run("chmod", "700", ssh_directory):
+        logger.error("Failed to set the file permissions of the SSH directory")
+        return False
+    if not run(
+        "arch-chroot",
+        root_mount,
+        "chown",
+        "-R",
+        "main:main",
+        "/home/" + profile.username.get_str() + "/.ssh",
+    ):
+        logger.error("Failed to update the file ownership for authorized SSH keys")
+        return False
 
     logger.success("Installation complete!")
 
@@ -1236,66 +1249,52 @@ def post_pacstrap_setup(
     section("Setting the root password")
     if not run("chpasswd", input="root:" + profile.root_password.get_str()):
         logger.error("Failed to set the root password")
-        # Continue installation even if this fails
+        return False
 
     section("Creating the sudo group")
-    if run("groupadd", "--force", profile.sudo_group.get_str()):
-        section("Creating the user")
-        if run(
-            "useradd",
-            "--create-home",
-            "--skel",
-            "/etc/moos-skel",
-            "--shell",
-            "/usr/bin/bash",
-            "--user-group",
-            "--groups",
-            profile.sudo_group.get_str(),
-            profile.username.get_str(),
-        ):
-            section("Setting the user password")
-            if not run(
-                "chpasswd",
-                input=profile.username.get_str()
-                + ":"
-                + profile.user_password.get_str(),
-            ):
-                logger.error("Failed to set the user password")
-                # Continue installation even if this fails
-
-            section("Updating file ownership for authorized SSH keys")
-            if not run(
-                "chown",
-                "-R",
-                "main:main",
-                "/home/" + profile.username.get_str() + "/.ssh",
-            ):
-                logger.error(
-                    "Failed to update the file ownership for authorized SSH keys"
-                )
-                # Continue installation even if this fails
-        else:
-            logger.error("Failed to create the user")
-            # Continue installation even if this fails
-
-        section("Providing root privileges to all members of the sudo group")
-        if not write(
-            "/etc/sudoers",
-            "a",
-            "\n"
-            "## Allow members of group "
-            + profile.sudo_group.get_str()
-            + " to execute any command\n%"
-            + profile.sudo_group.get_str()
-            + " ALL=(ALL:ALL) ALL\n",
-        ):
-            logger.error(
-                "Failed to provide root privileges to all members of the sudo group"
-            )
-            # Continue installation even if this fails
-    else:
+    if not run("groupadd", "--force", profile.sudo_group.get_str()):
         logger.error("Failed to create the sudo group")
-        # Continue installation even if this fails
+        return False
+
+    section("Creating the user")
+    if not run(
+        "useradd",
+        "--create-home",
+        "--skel",
+        "/etc/moos-skel",
+        "--shell",
+        "/usr/bin/bash",
+        "--user-group",
+        "--groups",
+        profile.sudo_group.get_str(),
+        profile.username.get_str(),
+    ):
+        logger.error("Failed to create the user")
+        return False
+
+    section("Setting the user password")
+    if not run(
+        "chpasswd",
+        input=profile.username.get_str() + ":" + profile.user_password.get_str(),
+    ):
+        logger.error("Failed to set the user password")
+        return False
+
+    section("Providing root privileges to all members of the sudo group")
+    if not write(
+        "/etc/sudoers",
+        "a",
+        "\n"
+        "## Allow members of group "
+        + profile.sudo_group.get_str()
+        + " to execute any command\n%"
+        + profile.sudo_group.get_str()
+        + " ALL=(ALL:ALL) ALL\n",
+    ):
+        logger.error(
+            "Failed to provide root privileges to all members of the sudo group"
+        )
+        return False
 
     section("Setting time zone: " + profile.time_zone.get_str())
     if not run(
