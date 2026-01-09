@@ -1483,11 +1483,11 @@ def post_pacstrap_setup(
         if not run("systemctl", "enable", "libvirtd.socket"):
             logger.error("Failed to enable the libvirtd socket for QEMU")
             # Continue installation even if this fails
-        if not run("virsh", "net-autostart", "default"):
-            logger.error(
-                "Failed to force the network interface for libvirt to start automatically"
-            )
-            # Continue installation even if this fails
+        # if not run("virsh", "net-autostart", "default"):
+        #     logger.error(
+        #         "Failed to force the network interface for libvirt to start automatically"
+        #     )
+        #     # Continue installation even if this fails
         if not run("usermod", "-aG", "libvirt", profile.username.get_str()):
             logger.error("Failed add the user to the libvirt group")
             # Continue installation even if this fails
