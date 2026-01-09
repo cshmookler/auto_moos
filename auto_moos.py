@@ -6,6 +6,7 @@ import atexit
 import curses
 import json
 import os
+import re
 import shutil
 import subprocess
 from argparse import Action, ArgumentParser, Namespace
@@ -438,6 +439,9 @@ class Profile:
     network_install: Field = Field(False, bool)
     min_device_bytes: Field = Field(int(10e9), int, validator=Field.numeric_validator)
     device: Field = Field(None, Optional[str])
+    luks_encryption: Field = Field(False, bool)
+    luks_password: Field = Field(None, str, validator=Field.password_validator)
+    luks_uuid: Field = Field(None, str)
     boot_label: Field = Field("MOOS", str, validator=Field.boot_label_validator)
     time_zone: Field = Field("America/Denver", str)
     hostname: Field = Field("moos", str, validator=Field.hostname_validator)
@@ -805,14 +809,16 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
         network_install = 1
         min_device_bytes = 2
         device = 3
-        boot_label = 4
-        time_zone = 5
-        hostname = 6
-        root_password = 7
-        username = 8
-        user_password = 9
-        sudo_group = 10
-        begin_installation = 11
+        luks_encryption = 4
+        luks_password = 5
+        boot_label = 6
+        time_zone = 7
+        hostname = 8
+        root_password = 9
+        username = 10
+        user_password = 11
+        sudo_group = 12
+        begin_installation = 13
 
     while True:
         cursor_index = app.select(
@@ -824,6 +830,8 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
                 " network install  ->  " + profile.network_install.get_str(),
                 "min device bytes  ->  " + profile.min_device_bytes.get_str(),
                 "          device  ->  " + profile.device.get_str(),
+                " LUKS encryption  ->  " + profile.luks_encryption.get_str(),
+                "   LUKS password  ->  " + profile.luks_password.get_str(),
                 "      boot label  ->  " + profile.boot_label.get_str(),
                 "       time zone  ->  " + profile.time_zone.get_str(),
                 "        hostname  ->  " + profile.hostname.get_str(),
@@ -866,6 +874,21 @@ def interactive_conf(profile: Profile) -> Optional[Profile]:
             )
         elif cursor_index == int(Index.device):
             profile.device.set(app.get_device(profile.min_device_bytes.get()))
+        elif cursor_index == int(Index.luks_encryption):
+            selection_index = app.select(
+                "Enable full encryption of the root partition?",
+                [
+                    "No. Do NOT encrypt my root partition.",
+                    "Yes. Encrypt my root partition.",
+                ],
+            )
+            if selection_index is not None:
+                profile.luks_encryption.set(bool(selection_index))
+        elif cursor_index == int(Index.luks_password):
+            profile.luks_password = app.input(
+                profile.luks_password,
+                "Enter the password for the root partition:",
+            )
         elif cursor_index == int(Index.boot_label):
             profile.boot_label = app.input(
                 profile.boot_label, "Enter the new boot label:"
@@ -1121,16 +1144,51 @@ def main() -> bool:
     if not run("mkfs.fat", "-F", "32", boot_part):
         logger.error("Failed to create a FAT32 filesystem on " + boot_part)
         return False
-    if not run("mkfs.ext4", root_part):
-        logger.error("Failed to create an EXT4 filesystem on " + root_part)
-        return False
+    if profile.luks_encryption.get():
+        if not run(
+            "cryptsetup",
+            "luksFormat",
+            root_part,
+            input=profile.luks_password.get(),
+        ):
+            logger.error("Failed to create a LUKS encrypted container on " + root_part)
+            return False
+
+        profile.luks_uuid.set(get("cryptsetup", "luksUUID", root_part))
+        if not profile.luks_uuid.get():
+            logger.error(
+                "Failed to get the UUID of the LUKS encrypted container on " + root_part
+            )
+            return False
+
+        if not run(
+            "cryptsetup", "open", root_part, "root", input=profile.luks_password.get()
+        ):
+            logger.error("Failed to open the LUKS crypt on " + root_part)
+            return False
+
+        if not run("mkfs.ext4", "/dev/mapper/root"):
+            logger.error(
+                "Failed to create an EXT4 filesystem within the LUKS crypt on "
+                + root_part
+            )
+            return False
+    else:
+        if not run("mkfs.ext4", root_part):
+            logger.error("Failed to create an EXT4 filesystem on " + root_part)
+            return False
 
     section("Mounting filesystems")
     root_mount = "/mnt"
     boot_mount = "/mnt/boot"
-    if not run("mount", "--mkdir", root_part, root_mount):
-        logger.error("Failed to mount " + root_part + " to " + root_mount)
-        return False
+    if profile.luks_encryption.get():
+        if not run("mount", "--mkdir", "/dev/mapper/root", root_mount):
+            logger.error("Failed to mount /dev/mapper/root to " + root_mount)
+            return False
+    else:
+        if not run("mount", "--mkdir", root_part, root_mount):
+            logger.error("Failed to mount " + root_part + " to " + root_mount)
+            return False
     if not run("mount", "--mkdir", boot_part, boot_mount):
         logger.error("Failed to mount " + boot_part + " to " + boot_mount)
         return False
@@ -1213,6 +1271,11 @@ def main() -> bool:
         logger.error("Failed to update the file ownership for authorized SSH keys")
         return False
 
+    section("Removing this script from the root partition")
+    if not remove(root_mount + "/auto_moos.py"):
+        logger.error("Failed to remove this script from the root partition")
+        # Continue installation even if this fails
+
     logger.success("Installation complete!")
 
     section("Copying the log file to the root home directory in the root partition")
@@ -1228,6 +1291,9 @@ def main() -> bool:
     section("Unmounting all partitions on " + profile.device.get_str())
     if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
         logger.error("Failed to unmount all partitions on " + profile.device.get_str())
+    if profile.luks_encryption.get():
+        if not run("cryptsetup", "close", "root"):
+            logger.error("Failed to close the root partition LUKS crypt")
 
     return True
 
@@ -1248,10 +1314,40 @@ def post_pacstrap_setup(
         sep()
         print(msg + "...")
 
+    if profile.luks_encryption.get():
+        section("Adding 'sd-encrypt' to the mkinitcpio HOOKS array")
+        with open("/etc/mkinitcpio.conf", "r+") as file:
+            file_lines = file.readlines()
+            file.seek(0)
+            for line in file_lines:
+                if line.strip().startswith("HOOKS="):
+                    file.write(
+                        re.sub(r"\bfilesystems\b", r"sd-encrypt filesystems", line)
+                    )
+                else:
+                    file.write(line)
+        if not run("mkinitcpio", "-P"):
+            logger.error(
+                "Failed to recreate the initramfs image after adding 'sd-encrypt' to the mkinitcpio HOOKS array"
+            )
+            return False
+
     section("Installing the boot loader")
-    if not run("auto_limine", boot_part, "--label", profile.boot_label.get_str()):
-        logger.error("Failed to install the boot loader (Limine)")
-        return False
+    if profile.luks_encryption.get():
+        if not run(
+            "auto_limine",
+            boot_part,
+            "--label",
+            profile.boot_label.get_str(),
+            "--crypt",
+            profile.luks_uuid.get_str(),
+        ):
+            logger.error("Failed to install the boot loader (Limine)")
+            return False
+    else:
+        if not run("auto_limine", boot_part, "--label", profile.boot_label.get_str()):
+            logger.error("Failed to install the boot loader (Limine)")
+            return False
 
     section("Setting the root password")
     if not run("chpasswd", input="root:" + profile.root_password.get_str()):
