@@ -1193,14 +1193,15 @@ def main() -> bool:
     if not run("mkdir", "--parents", "--mode", "700", ssh_directory):
         logger.error("Failed to create the SSH directory")
         return False
-    if not run(
-        "rsync",
-        "--chmod=600",
-        "/root/.ssh/authorized_keys",
-        ssh_directory + "/authorized_keys",
-    ):
-        logger.error("Failed to copy authorized SSH keys to the root partition")
-        return False
+    if os.path.exists("/root/.ssh/authorized_keys"):
+        if not run(
+            "rsync",
+            "--chmod=600",
+            "/root/.ssh/authorized_keys",
+            ssh_directory + "/authorized_keys",
+        ):
+            logger.error("Failed to copy authorized SSH keys to the root partition")
+            return False
     if not run(
         "arch-chroot",
         root_mount,
