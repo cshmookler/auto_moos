@@ -1289,7 +1289,7 @@ def main() -> bool:
         )
 
     section("Unmounting all partitions on " + profile.device.get_str())
-    if not run("bash", "-ec", "umount " + profile.device.get_str() + "?*"):
+    if not run("umount", "-R", "/mnt"):
         logger.error("Failed to unmount all partitions on " + profile.device.get_str())
     if profile.luks_encryption.get():
         if not run("cryptsetup", "close", "root"):
